@@ -1,14 +1,15 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
-LIBS = -lpthread
+TARGET = build/main
+SRC = main.c
 
-TARGET = main
-SOURCES = main.c
+all: $(TARGET)
 
-$(TARGET): $(SOURCES)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCES) $(LIBS)
+$(TARGET): $(SRC)
+	mkdir -p build
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -pthread
 
 clean:
-	rm -f $(TARGET)
+	rm -rf build
 
-.PHONY: clean
+.PHONY: all clean
