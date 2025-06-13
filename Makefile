@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99
+CFLAGS = -Wall -Wextra -std=gnu99
 TARGET = build/main
 SRC = main.c
 
@@ -12,4 +12,7 @@ $(TARGET): $(SRC)
 clean:
 	rm -rf build
 
-.PHONY: all clean
+run: all
+	./$(TARGET)
+
+.PHONY: all clean run
