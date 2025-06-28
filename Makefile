@@ -1,15 +1,16 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99
-TARGET = build/main
-SRC = main.c
+CFLAGS = -Wall -Wextra -O2 -pthread
+LDFLAGS = -lm
+EXEC = game_of_life
+SRC = game_of_life.c
 
-all: $(TARGET)
+all: $(EXEC)
 
-$(TARGET): $(SRC)
-	mkdir -p build
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -pthread
+$(EXEC): $(SRC)
+	$(CC) $(CFLAGS) -o $(EXEC) $(SRC) $(LDFLAGS)
+
+run: all
+	./run_simulations.sh
 
 clean:
-	rm -rf build
-
-.PHONY: all clean
+	rm -f $(EXEC) resultados.csv
