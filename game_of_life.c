@@ -8,8 +8,11 @@
 #include <math.h>
 #include <signal.h>
 
+#include <pthread.h>
+
 int TAMANHO;
 int NUM_GERACOES;
+int NUM_THREADS;
 
 int **grid;
 int **newGrid;
@@ -17,6 +20,49 @@ int **newGrid;
 // Declarações de função
 void liberarMatrizes();
 void atualizarGrid();
+
+typedef struct {
+    pthread_mutex_t mutex;
+    int contador_threads;
+    int limite_threads;
+    int geracao;
+} barreira_custom_t;
+
+int barreira_custom_init(barreira_custom_t *barreira, int num_threads) {
+    if (num_threads <= 0)
+        return -1;
+
+    pthread_mutex_init(&barreira->mutex, NULL);
+
+    barreira->limite_threads = num_threads;
+    barreira->contador_threads = 0;
+    barreira->geracao = 1;
+    return 0;
+}
+
+void barreira_custom_wait(barreira_custom_t *barreira) {
+
+    pthread_mutex_lock(&barreira->mutex);
+    int geracao = barreira->geracao;
+    if(barreira->contador_threads == barreira->limite_threads-1){
+        atualizarGrid();
+        barreira->contador_threads = 0;
+        barreira->geracao += 1;
+        // printf("libera\n");
+    }else{
+        barreira->contador_threads += 1;
+        // printf("esp | ");
+    }
+    pthread_mutex_unlock(&barreira->mutex);
+
+    while (barreira->geracao == geracao) {
+        usleep(10);
+    }
+}
+
+void barreira_custom_destroy(barreira_custom_t *barreira) {
+    pthread_mutex_destroy(&barreira->mutex);
+}
 
 void limpeza_handler(int sig __attribute__((unused))) {
     printf("\nInterrompido pelo usuário. Limpando memória...\n");
@@ -99,7 +145,7 @@ typedef struct {
 
 typedef struct {
     TipoPackFaixa* task_data;
-    pthread_barrier_t* barrier;
+    barreira_custom_t* barrier;
 } ThreadArgsFaixa;
 
 typedef struct {
@@ -111,7 +157,7 @@ typedef struct {
 
 typedef struct {
     TipoPackJanela* task_data;
-    pthread_barrier_t* barrier;
+    barreira_custom_t* barrier;
 } ThreadArgsJanela;
 
 
@@ -136,18 +182,12 @@ void aplicarRegrasFaixa(void* ptr) {
 void* poolControlerFaixa(void* ptr){
     ThreadArgsFaixa* task = (ThreadArgsFaixa*) ptr;
     TipoPackFaixa* pack = task->task_data;
-    pthread_barrier_t* barrier = task->barrier;
+    barreira_custom_t* barrier = task->barrier;
 
     for (int i = 0; i < NUM_GERACOES; i++){
         aplicarRegrasFaixa((void*) pack);
 
-        int barrier_result = pthread_barrier_wait(barrier);
-        
-        if(barrier_result == PTHREAD_BARRIER_SERIAL_THREAD){
-            atualizarGrid();
-        }
-        
-        pthread_barrier_wait(barrier);
+        barreira_custom_wait(barrier);
     }
     free(task);
     pthread_exit(NULL);
@@ -161,7 +201,7 @@ void aplicarRegrasFaixas(int nThreads) {
     }
 
     pthread_t threads[nThreads];
-    pthread_barrier_t barrier;
+    barreira_custom_t barrier;
 
     TipoPackFaixa packs[nThreads];
 
@@ -176,7 +216,7 @@ void aplicarRegrasFaixas(int nThreads) {
     }
 
     // Cria a barreira para esperar por nThreads
-    if(pthread_barrier_init(&barrier, NULL, nThreads) != 0) {
+    if(barreira_custom_init(&barrier, nThreads) != 0) {
         perror("Falha ao inicializar a barreira");
     }
 
@@ -220,21 +260,17 @@ void aplicarRegrasJanela(void* ptr) {
 void* poolControlerJanela(void* ptr){
     ThreadArgsJanela* task = (ThreadArgsJanela*) ptr;
     TipoPackJanela* pack = task->task_data;
-    pthread_barrier_t* barrier = task->barrier;
+    barreira_custom_t* barrier = task->barrier;
 
     for (int i = 0; i < NUM_GERACOES; i++){
         aplicarRegrasJanela((void*) pack);
 
         // printf("chegou na barreira 1\n");
         // 2. Fica esperando na barreira
-        int barrier_result = pthread_barrier_wait(barrier);
-        
-        if(barrier_result == PTHREAD_BARRIER_SERIAL_THREAD){
-            atualizarGrid();
-        }
+        barreira_custom_wait(barrier);
         
         // printf("chegou na barreira 2\n");
-        pthread_barrier_wait(barrier);
+        // pthread_barrier_wait(barrier);
         // printf("passou da barreira\n");
     }
     free(task);
@@ -251,7 +287,7 @@ void aplicarRegrasJanelas(int nDiv) {
     }
 
     pthread_t threads[qThreads];
-    pthread_barrier_t barrier;
+    barreira_custom_t barrier;
 
     TipoPackJanela packs[qThreads];
 
@@ -284,7 +320,7 @@ void aplicarRegrasJanelas(int nDiv) {
     }
 
     // 2. Cria a barreira para esperar por qThreads
-    if(pthread_barrier_init(&barrier, NULL, qThreads) != 0) {
+    if(barreira_custom_init(&barrier, qThreads) != 0) {
         perror("Falha ao inicializar a barreira");
     }
 
@@ -396,6 +432,7 @@ int main(int argc, char* argv[]) {
 
     // for (int g = 0; g < NUM_GERACOES; g++) {
         // Medir apenas o trabalho paralelo por geração
+        NUM_THREADS = numThreads;
         double tempo_geracao = medirTempoParalelo(modo, numThreads);
         tempo_total_paralelo += tempo_geracao;
 
