@@ -71,18 +71,14 @@ void limpeza_handler(int sig __attribute__((unused))) {
 }
 
 void alocarMatrizes() {
-    // 1. Alocar o array de ponteiros para as linhas (o "índice")
     grid = malloc(TAMANHO * sizeof(int*));
     newGrid = malloc(TAMANHO * sizeof(int*));
 
-    // 2. Alocar o bloco único e gigante que conterá TODOS os dados da matriz
     int* grid_data = malloc(TAMANHO * TAMANHO * sizeof(int));
     int* newGrid_data = malloc(TAMANHO * TAMANHO * sizeof(int));
 
-    // Verificação de erro para todas as alocações
     if (!grid || !newGrid || !grid_data || !newGrid_data) {
         perror("malloc para alocação contígua falhou");
-        // Libera o que quer que tenha sido alocado com sucesso antes de sair
         if (grid) free(grid);
         if (newGrid) free(newGrid);
         if (grid_data) free(grid_data);
@@ -194,7 +190,6 @@ void* poolControlerFaixa(void* ptr){
 }
 
 void aplicarRegrasFaixas(int nThreads) {
-    // Limitar número máximo de threads para evitar stack overflow
     if (nThreads > 1000) {
         printf("Erro: Número de threads muito alto (%d). Máximo: 1000\n", nThreads);
         return;
@@ -215,14 +210,12 @@ void aplicarRegrasFaixas(int nThreads) {
         linhaAtual = packs[i].linhaFim;
     }
 
-    // Cria a barreira para esperar por nThreads
     if(barreira_custom_init(&barrier, nThreads) != 0) {
         perror("Falha ao inicializar a barreira");
     }
 
     printf("criou a barreira\nLançando as threads:\n\n");
-    
-    // Cria todas as nThreads threads
+
     for (int i = 0; i < nThreads; i++){
         ThreadArgsFaixa* task = malloc(sizeof(ThreadArgsFaixa));
         task->task_data = &packs[i];
@@ -264,14 +257,7 @@ void* poolControlerJanela(void* ptr){
 
     for (int i = 0; i < NUM_GERACOES; i++){
         aplicarRegrasJanela((void*) pack);
-
-        // printf("chegou na barreira 1\n");
-        // 2. Fica esperando na barreira
         barreira_custom_wait(barrier);
-        
-        // printf("chegou na barreira 2\n");
-        // pthread_barrier_wait(barrier);
-        // printf("passou da barreira\n");
     }
     free(task);
     pthread_exit(NULL);
@@ -280,7 +266,6 @@ void* poolControlerJanela(void* ptr){
 void aplicarRegrasJanelas(int nDiv) {
     int qThreads = nDiv * nDiv;
 
-    // Limitar número máximo de threads
     if (qThreads > 1000) {
         printf("Erro: Número de threads muito alto (%d). Máximo: 1000\n", qThreads);
         return;
@@ -299,7 +284,6 @@ void aplicarRegrasJanelas(int nDiv) {
     int count = 0;
     int linhaIni = 0;
 
-    // 1. Cria os dados para cada thread operar
     for (int i = 0; i < nDiv; i++) {
         int linhaFim = linhaIni + linhasPorJanela + (i < restoLinhas ? 1 : 0);
         int colunaIni = 0;
@@ -311,22 +295,18 @@ void aplicarRegrasJanelas(int nDiv) {
             packs[count].colunaIni = colunaIni;
             packs[count].colunaFim = colunaFim;
 
-            // printf("\nlinha ini: %d\nlinha fim: %d\ncoluna ini: %d\ncoluna fim: %d\n\n", packs[count].linhaIni, packs[count].linhaFim, packs[count].colunaIni, packs[count].colunaFim);
-
             colunaIni = colunaFim;
             count++;
         }
         linhaIni = linhaFim;
     }
 
-    // 2. Cria a barreira para esperar por qThreads
     if(barreira_custom_init(&barrier, qThreads) != 0) {
         perror("Falha ao inicializar a barreira");
     }
 
     printf("criou a barreira\nLançando as threads:\n\n");
-    
-    // 3. Cria todas as qThreads threads do pool
+
     for (int i = 0; i < qThreads; i++){
         ThreadArgsJanela* task = malloc(sizeof(ThreadArgsJanela));
         task->task_data = &packs[i];
@@ -338,7 +318,6 @@ void aplicarRegrasJanelas(int nDiv) {
         }
     }
 
-    // 4. Espera que todas as threads teham acabado de executar
     for (int i = 0; i < qThreads; i++) {
         pthread_join(threads[i], NULL);
     }
@@ -360,20 +339,19 @@ void imprimirGridParcial(int tamanho) {
     printf("\n");
 }
 
-// Função para medir apenas o trabalho paralelo
 double medirTempoParalelo(char* modo, int numThreads) {
     struct timeval inicio, fim;
     gettimeofday(&inicio, NULL);
-    
+
     if (strcmp(modo, "faixas") == 0) {
         aplicarRegrasFaixas(numThreads);
     } else {
         int nDiv = (int) sqrt(numThreads);
         aplicarRegrasJanelas(nDiv);
     }
-    
+
     gettimeofday(&fim, NULL);
-    
+
     long segundos = fim.tv_sec - inicio.tv_sec;
     long microssegundos = fim.tv_usec - inicio.tv_usec;
     if (microssegundos < 0) {
@@ -427,25 +405,15 @@ int main(int argc, char* argv[]) {
 
     struct timeval inicio, fim;
     double tempo_total_paralelo = 0.0;
-    
+
     gettimeofday(&inicio, NULL);
 
-    // for (int g = 0; g < NUM_GERACOES; g++) {
-        // Medir apenas o trabalho paralelo por geração
-        NUM_THREADS = numThreads;
-        double tempo_geracao = medirTempoParalelo(modo, numThreads);
-        tempo_total_paralelo += tempo_geracao;
-
-    //     atualizarGrid();
-
-    //     // Impressão apenas para debug (não conta no tempo de benchmark)
-    //     // if (TAMANHO <= 40)
-    //     //     imprimirGridParcial(TAMANHO);
-    // }
+    NUM_THREADS = numThreads;
+    double tempo_geracao = medirTempoParalelo(modo, numThreads);
+    tempo_total_paralelo += tempo_geracao;
 
     gettimeofday(&fim, NULL);
 
-    // Tempo total incluindo overhead sequencial
     long segundos = fim.tv_sec - inicio.tv_sec;
     long microssegundos = fim.tv_usec - inicio.tv_usec;
     if (microssegundos < 0) {
@@ -456,12 +424,12 @@ int main(int argc, char* argv[]) {
 
     printf("Simulação concluída.\n");
     printf("Tempo total: %.2f ms\n", tempo_total_ms);
-    printf("Tempo paralelo puro: %.2f ms (%.1f%%)\n", 
+    printf("Tempo paralelo puro: %.2f ms (%.1f%%)\n",
            tempo_total_paralelo, (tempo_total_paralelo/tempo_total_ms)*100);
 
-    FILE* f = fopen("resultados.csv", "a");
+    FILE* f = fopen("resultados_pthread.csv", "a");
     if (!f) {
-        perror("Erro ao abrir resultados.csv");
+        perror("Erro ao abrir resultados_pthread.csv");
     } else {
         // Salvar tempo total (inclui overhead sequencial)
         fprintf(f, "%s,%d,%d,%d,%.2f\n", modo, numThreads, TAMANHO, NUM_GERACOES, tempo_total_ms);
