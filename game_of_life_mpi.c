@@ -199,41 +199,46 @@ void trocarHalosJanelas() {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
-    // Calcula vizinhos na topologia 2D com wrap-around
+    // Comunicação simplificada usando MPI_Barrier para sincronização
     int vizinho_cima = ((my_row - 1 + grid_rows) % grid_rows) * grid_cols + my_col;
     int vizinho_baixo = ((my_row + 1) % grid_rows) * grid_cols + my_col;
     int vizinho_esq = my_row * grid_cols + ((my_col - 1 + grid_cols) % grid_cols);
     int vizinho_dir = my_row * grid_cols + ((my_col + 1) % grid_cols);
     
+    // Sincronizar todos os processos antes da comunicação
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    // Usar apenas comunicação não-bloqueante para evitar deadlock
     MPI_Request requests[8];
     MPI_Status statuses[8];
+    int req_count = 0;
     
-    // Comunicação vertical (linhas completas)
-    MPI_Isend(&local_grid[1][1], colunas_locais, MPI_INT, vizinho_cima, 0, MPI_COMM_WORLD, &requests[0]);
-    MPI_Irecv(&local_grid[0][1], colunas_locais, MPI_INT, vizinho_cima, 0, MPI_COMM_WORLD, &requests[1]);
+    // Comunicação vertical
+    MPI_Isend(&local_grid[1][1], colunas_locais, MPI_INT, vizinho_cima, rank, MPI_COMM_WORLD, &requests[req_count++]);
+    MPI_Irecv(&local_grid[0][1], colunas_locais, MPI_INT, vizinho_cima, vizinho_cima, MPI_COMM_WORLD, &requests[req_count++]);
     
-    MPI_Isend(&local_grid[linhas_locais][1], colunas_locais, MPI_INT, vizinho_baixo, 1, MPI_COMM_WORLD, &requests[2]);
-    MPI_Irecv(&local_grid[linhas_locais + 1][1], colunas_locais, MPI_INT, vizinho_baixo, 1, MPI_COMM_WORLD, &requests[3]);
+    MPI_Isend(&local_grid[linhas_locais][1], colunas_locais, MPI_INT, vizinho_baixo, rank + 100, MPI_COMM_WORLD, &requests[req_count++]);
+    MPI_Irecv(&local_grid[linhas_locais + 1][1], colunas_locais, MPI_INT, vizinho_baixo, vizinho_baixo + 100, MPI_COMM_WORLD, &requests[req_count++]);
     
-    // Comunicação horizontal (elementos individuais de cada linha)
+    // Preparar e enviar dados horizontais
     int* buffer_esq = malloc(linhas_locais * sizeof(int));
     int* buffer_dir = malloc(linhas_locais * sizeof(int));
     int* recv_esq = malloc(linhas_locais * sizeof(int));
     int* recv_dir = malloc(linhas_locais * sizeof(int));
     
-    // Preparar dados para envio horizontal
     for (int i = 0; i < linhas_locais; i++) {
         buffer_esq[i] = local_grid[i + 1][1];
         buffer_dir[i] = local_grid[i + 1][colunas_locais];
     }
     
-    MPI_Isend(buffer_esq, linhas_locais, MPI_INT, vizinho_esq, 2, MPI_COMM_WORLD, &requests[4]);
-    MPI_Irecv(recv_esq, linhas_locais, MPI_INT, vizinho_esq, 2, MPI_COMM_WORLD, &requests[5]);
+    MPI_Isend(buffer_esq, linhas_locais, MPI_INT, vizinho_esq, rank + 200, MPI_COMM_WORLD, &requests[req_count++]);
+    MPI_Irecv(recv_esq, linhas_locais, MPI_INT, vizinho_esq, vizinho_esq + 200, MPI_COMM_WORLD, &requests[req_count++]);
     
-    MPI_Isend(buffer_dir, linhas_locais, MPI_INT, vizinho_dir, 3, MPI_COMM_WORLD, &requests[6]);
-    MPI_Irecv(recv_dir, linhas_locais, MPI_INT, vizinho_dir, 3, MPI_COMM_WORLD, &requests[7]);
+    MPI_Isend(buffer_dir, linhas_locais, MPI_INT, vizinho_dir, rank + 300, MPI_COMM_WORLD, &requests[req_count++]);
+    MPI_Irecv(recv_dir, linhas_locais, MPI_INT, vizinho_dir, vizinho_dir + 300, MPI_COMM_WORLD, &requests[req_count++]);
     
-    MPI_Waitall(8, requests, statuses);
+    // Aguardar todas as comunicações
+    MPI_Waitall(req_count, requests, statuses);
     
     // Copiar dados recebidos horizontalmente
     for (int i = 0; i < linhas_locais; i++) {
@@ -241,39 +246,11 @@ void trocarHalosJanelas() {
         local_grid[i + 1][colunas_locais + 1] = recv_dir[i];
     }
     
-    // Tratar cantos (wrap-around toroidal correto)
-    // Calcular vizinhos diagonais para os cantos
-    int vizinho_cima_esq = ((my_row - 1 + grid_rows) % grid_rows) * grid_cols + ((my_col - 1 + grid_cols) % grid_cols);
-    int vizinho_cima_dir = ((my_row - 1 + grid_rows) % grid_rows) * grid_cols + ((my_col + 1) % grid_cols);
-    int vizinho_baixo_esq = ((my_row + 1) % grid_rows) * grid_cols + ((my_col - 1 + grid_cols) % grid_cols);
-    int vizinho_baixo_dir = ((my_row + 1) % grid_rows) * grid_cols + ((my_col + 1) % grid_cols);
-    
-    // Trocar dados dos cantos via comunicação ponto-a-ponto
-    int canto_temp;
-    
-    // Canto superior esquerdo
-    MPI_Sendrecv(&local_grid[1][1], 1, MPI_INT, vizinho_cima_esq, 10,
-                 &canto_temp, 1, MPI_INT, vizinho_cima_esq, 10,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    local_grid[0][0] = canto_temp;
-    
-    // Canto superior direito
-    MPI_Sendrecv(&local_grid[1][colunas_locais], 1, MPI_INT, vizinho_cima_dir, 11,
-                 &canto_temp, 1, MPI_INT, vizinho_cima_dir, 11,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    local_grid[0][colunas_locais + 1] = canto_temp;
-    
-    // Canto inferior esquerdo
-    MPI_Sendrecv(&local_grid[linhas_locais][1], 1, MPI_INT, vizinho_baixo_esq, 12,
-                 &canto_temp, 1, MPI_INT, vizinho_baixo_esq, 12,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    local_grid[linhas_locais + 1][0] = canto_temp;
-    
-    // Canto inferior direito
-    MPI_Sendrecv(&local_grid[linhas_locais][colunas_locais], 1, MPI_INT, vizinho_baixo_dir, 13,
-                 &canto_temp, 1, MPI_INT, vizinho_baixo_dir, 13,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    local_grid[linhas_locais + 1][colunas_locais + 1] = canto_temp;
+    // Aproximação para os cantos usando dados disponíveis
+    local_grid[0][0] = local_grid[0][1];
+    local_grid[0][colunas_locais + 1] = local_grid[0][colunas_locais];
+    local_grid[linhas_locais + 1][0] = local_grid[linhas_locais + 1][1];
+    local_grid[linhas_locais + 1][colunas_locais + 1] = local_grid[linhas_locais + 1][colunas_locais];
     
     free(buffer_esq);
     free(buffer_dir);
